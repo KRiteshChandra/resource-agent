@@ -1,0 +1,201 @@
+openapi: 3.0.3
+info:
+  title: AI Resource Acquisition Agent API
+  version: 0.1.0
+  description: >
+    Backend API for parsing resource requirements, discovering candidate
+    resources (GitHub, Hugging Face), ranking them, gating downloads behind
+    explicit approval, and generating inspection/provenance reports.
+
+paths:
+  /requests:
+    post:
+      summary: Submit a natural-language resource request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raw_text]
+              properties:
+                raw_text:
+                  type: string
+                  example: "Find datasets containing IT support tickets and resolutions."
+      responses:
+        "201":
+          description: Requirement parsed and created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Requirement"
+
+    get:
+      summary: List all past requests
+      responses:
+        "200":
+          description: List of requirements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Requirement"
+
+  /requests/{requirement_id}/resources:
+    get:
+      summary: Get ranked candidate resources for a requirement
+      parameters:
+        - name: requirement_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Ranked list of candidates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Candidate"
+
+  /resources/{resource_id}/approve:
+    post:
+      summary: Approve an exact resource version for download
+      parameters:
+        - name: resource_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Approval created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Approval"
+        "409":
+          description: Resource version changed since discovery; cannot approve
+
+  /resources/{resource_id}/download:
+    post:
+      summary: Download an approved resource (blocked if not approved or approval invalidated)
+      parameters:
+        - name: resource_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Download accepted and queued for validation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Download"
+        "403":
+          description: No active approval found for this resource
+        "409":
+          description: Approval invalidated (source changed since approval)
+
+  /downloads/{download_id}/report:
+    get:
+      summary: Get inspection report and provenance manifest for a download
+      parameters:
+        - name: download_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Inspection + provenance data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inspection:
+                    $ref: "#/components/schemas/InspectionReport"
+                  provenance:
+                    $ref: "#/components/schemas/ProvenanceManifest"
+
+components:
+  schemas:
+    Requirement:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        raw_text: { type: string }
+        resource_types: { type: array, items: { type: string } }
+        topics: { type: array, items: { type: string } }
+        preferred_formats: { type: array, items: { type: string } }
+        license_preference: { type: string }
+        max_size_mb: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Candidate:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [github, huggingface, web] }
+        source_url: { type: string }
+        version_or_commit: { type: string }
+        title: { type: string }
+        description: { type: string }
+        format: { type: string }
+        size_bytes: { type: integer, nullable: true }
+        license: { type: string, nullable: true }
+        license_evidence: { type: string, nullable: true }
+        relevance_score: { type: number }
+        score_breakdown: { type: object }
+
+    Approval:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        candidate_id: { type: string, format: uuid }
+        approved_version_or_commit: { type: string }
+        approved_by: { type: string }
+        approved_at: { type: string, format: date-time }
+        status: { type: string, enum: [active, invalidated] }
+
+    Download:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        approval_id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [pending, validated, quarantined, failed, complete]
+        sha256: { type: string }
+        size_bytes: { type: integer }
+        mime_detected: { type: string }
+
+    InspectionReport:
+      type: object
+      properties:
+        format: { type: string }
+        schema_preview: { type: object, nullable: true }
+        record_count: { type: integer, nullable: true }
+        encoding: { type: string, nullable: true }
+
+    ProvenanceManifest:
+      type: object
+      properties:
+        provider: { type: string }
+        original_source: { type: string }
+        revision: { type: string }
+        approved_by: { type: string }
+        approved_at: { type: string, format: date-time }
+        license_evidence: { type: string, nullable: true }
+        sha256: { type: string }
+        size_bytes: { type: integer }
+        detected_format: { type: string }

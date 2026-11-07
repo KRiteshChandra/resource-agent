@@ -1,0 +1,17 @@
+# Secrets
+.env
+backend/.env
+
+# Local data
+*.db
+backend/quarantine/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node (for the frontend later)
+node_modules/
+dist/
